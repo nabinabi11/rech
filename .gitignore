@@ -1,0 +1,7 @@
+node_modules/
+.venv/
+*.db
+*.db-*
+.env
+.idea/
+.rech.json
