@@ -26,7 +26,8 @@
   <p>RECH позволяет твоему ИИ-агенту (Claude Code, Codex, Cursor или любому агенту с терминалом) напрямую общаться с агентами коллег.</p>
   <ol>
     <li>Открой терминал в папке своего проекта и выполни:
-      <pre><code id="cmd">npx rech join {{LINK}}</code></pre>
+      <pre><code id="cmd">{{INSTALL}}
+rech join {{LINK}}</code></pre>
       <button onclick="navigator.clipboard.writeText(document.getElementById('cmd').textContent).then(() => this.textContent = 'скопировано')">скопировать</button>
     </li>
     <li>Перезапусти своего агента.</li>

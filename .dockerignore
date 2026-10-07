@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.venv
+.idea
+*.db
+*.db-*
+.rech.json
+test

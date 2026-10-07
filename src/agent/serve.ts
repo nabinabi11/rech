@@ -13,9 +13,11 @@ export interface ServeOptions {
   cwd: string;
   maxTurns: number; // automatic replies per conversation per hour
   timeoutMinutes: number;
+  retryDelayMs?: number; // pause before handling a failed message again
 }
 
 const NO_REPLY = "NO_REPLY";
+const MAX_ATTEMPTS = 3;
 
 /** Claude Code keeps one session per conversation, so the agent remembers the thread. */
 const claudeSessions = new Map<string, string>();
@@ -82,46 +84,71 @@ export async function serve(opts: ServeOptions) {
   const env = { ...process.env, RECH_URL: config.url, RECH_TOKEN: config.token };
   const turns = new Map<string, number[]>();
   const mine = new Set<number>();
+  const attempts = new Map<number, number>();
+  const retryDelay = opts.retryDelayMs ?? 30_000;
   const label = opts.exec ? `\`${opts.exec}\`` : opts.agent;
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  /** Handles one message. Returns false when it should be tried again later. */
+  async function handle(m: Message): Promise<boolean> {
+    const thread = m.reply_address;
+    if (!addressedToMe(m, me.handle, mine)) return true;
+
+    const hourAgo = Date.now() - 3_600_000;
+    const recent = (turns.get(thread) ?? []).filter((t) => t > hourAgo);
+    if (recent.length >= opts.maxTurns) {
+      console.warn(`${thread}: ${opts.maxTurns} automatic replies in the last hour, pausing this conversation`);
+      return true;
+    }
+
+    console.log(`← #${m.id} from @${m.from} (${thread}): ${m.body.slice(0, 120).replace(/\s+/g, " ")}`);
+    try {
+      const { messages: history } = await client.history(thread, 12);
+      const { command, succeeded } = commandFor(opts, thread);
+      const reply = await runAgent(command, buildPrompt(me, m, history), opts, env);
+      succeeded();
+      if (!reply || reply === NO_REPLY) {
+        console.log("  (no reply needed)");
+        return true;
+      }
+      const { message } = await client.send(thread, reply, m.id);
+      mine.add(message.id);
+      turns.set(thread, [...recent, Date.now()]);
+      console.log(`→ #${message.id} to ${thread}: ${reply.slice(0, 120).replace(/\s+/g, " ")}`);
+      return true;
+    } catch (e) {
+      const tries = (attempts.get(m.id) ?? 0) + 1;
+      attempts.set(m.id, tries);
+      if (tries >= MAX_ATTEMPTS) {
+        console.error(`  failed ${tries} times, giving up on #${m.id}: ${(e as Error).message}`);
+        return true;
+      }
+      console.error(`  failed (attempt ${tries}/${MAX_ATTEMPTS}), will retry: ${(e as Error).message}`);
+      return false;
+    }
+  }
 
   console.log(`@${me.handle} is on the line — answering with ${label} in ${opts.cwd}. Ctrl+C to stop.`);
   for (;;) {
     let messages: Message[];
     try {
-      ({ messages } = await client.inbox(280));
+      // peek: a message stays unread until it was handled, so a crash or a failed run does not lose it.
+      ({ messages } = await client.inbox(280, true));
     } catch (e) {
       console.error(`inbox: ${(e as Error).message}; retrying in 10s`);
-      await new Promise((r) => setTimeout(r, 10_000));
+      await sleep(10_000);
       continue;
     }
+    let failed = false;
     for (const m of messages) {
-      const thread = m.reply_address;
-      if (!addressedToMe(m, me.handle, mine)) continue;
-
-      const hourAgo = Date.now() - 3_600_000;
-      const recent = (turns.get(thread) ?? []).filter((t) => t > hourAgo);
-      if (recent.length >= opts.maxTurns) {
-        console.warn(`${thread}: ${opts.maxTurns} automatic replies in the last hour, pausing this conversation`);
-        continue;
-      }
-
-      console.log(`← #${m.id} from @${m.from} (${thread}): ${m.body.slice(0, 120).replace(/\s+/g, " ")}`);
-      try {
-        const { messages: history } = await client.history(thread, 12);
-        const { command, succeeded } = commandFor(opts, thread);
-        const reply = await runAgent(command, buildPrompt(me, m, history), opts, env);
-        succeeded();
-        if (!reply || reply === NO_REPLY) {
-          console.log("  (no reply needed)");
-          continue;
-        }
-        const { message } = await client.send(thread, reply, m.id);
-        mine.add(message.id);
-        turns.set(thread, [...recent, Date.now()]);
-        console.log(`→ #${message.id} to ${thread}: ${reply.slice(0, 120).replace(/\s+/g, " ")}`);
-      } catch (e) {
-        console.error(`  failed: ${(e as Error).message}`);
+      if (await handle(m)) {
+        await client.ack([m.id]).catch((e: Error) => console.error(`  could not mark #${m.id} read: ${e.message}`));
+        attempts.delete(m.id);
+      } else {
+        failed = true;
       }
     }
+    // Unread failures come back on the next poll immediately, so give the agent a pause first.
+    if (failed) await sleep(retryDelay);
   }
 }

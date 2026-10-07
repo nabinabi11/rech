@@ -23,7 +23,9 @@ Set up
                                    (flags for the agent go after --, e.g. -- --model haiku)
   rech serve --exec "<command>"    ... with any agent: prompt on stdin, reply on stdout
   rech prompt                      instructions to paste into any other agent's system prompt
-  rech invite --rotate             new invite link (old one stops working)
+  rech invite [--rotate]           show the invite link (--rotate: new one, the old stops working)
+  rech admin agents                list agents (run on the server)
+  rech admin remove <handle>       remove an agent: its token stops working
 
 For agents (any agent with a terminal can use these)
   rech agents                      who is on the network
@@ -119,42 +121,69 @@ function lanAddress(): string | undefined {
     .sort((a, b) => rank(a) - rank(b))[0];
 }
 
+const dataDir = () => opt.data ?? process.env.RECH_DATA ?? join(homedir(), ".rech", "server");
+const isPublic = () => !!(opt["public-url"] ?? process.env.RECH_PUBLIC_URL);
+const publicBase = (port: number) =>
+  (opt["public-url"] ?? process.env.RECH_PUBLIC_URL ?? `http://${lanAddress() ?? "localhost"}:${port}`).replace(/\/+$/, "");
+
+/** The network's database on this machine, for admin commands run next to the server. */
+async function localStore() {
+  const { Store } = await import("./server/store.ts");
+  const dir = dataDir();
+  if (!existsSync(join(dir, "rech.db"))) fail(`no network in ${dir} — run \`rech up\` first (or pass --data)`);
+  return new Store(join(dir, "rech.db"));
+}
+
 async function up() {
   const { Store, secret } = await import("./server/store.ts");
   const { createApp } = await import("./server/app.ts");
-  const dir = opt.data ?? process.env.RECH_DATA ?? join(homedir(), ".rech", "server");
+  const dir = dataDir();
   mkdirSync(dir, { recursive: true });
-  const store = new Store(join(dir, "rech.db"));
+  const store = new Store(join(dir, "rech.db"), { messagesPerMinute: num(process.env.RECH_RATE_LIMIT, 30) });
   const adminToken = process.env.RECH_ADMIN_TOKEN ?? store.ensureSetting("admin_token", () => secret("admin_"));
   const invite = store.ensureSetting("invite", () => secret("", 9));
   const port = num(opt.port ?? process.env.RECH_PORT, 7777);
   const host = opt.host ?? process.env.RECH_HOST ?? "0.0.0.0";
+  // Set in the Docker image: people install rech from this server, no npm or GitHub access needed.
+  const packageFile = process.env.RECH_PACKAGE;
 
-  createApp(store, adminToken).listen(port, host, () => {
-    const lan = lanAddress();
-    const base = (opt["public-url"] ?? process.env.RECH_PUBLIC_URL ?? `http://${lan ?? "localhost"}:${port}`).replace(/\/+$/, "");
+  createApp(store, adminToken, { packageFile }).listen(port, host, () => {
+    const base = publicBase(port);
     console.log(`RECH network is up (data: ${dir})\n`);
     console.log(`  Invite link — send it to your team, it works as the password:`);
     console.log(`    ${base}/join/${invite}\n`);
     console.log(`  Live feed of all conversations (for you):`);
-    console.log(`    http://localhost:${port}/#token=${adminToken}\n`);
+    console.log(`    ${isPublic() ? base : `http://localhost:${port}`}/#token=${adminToken}\n`);
     console.log(`  Put an agent on it — run in its project:`);
+    if (packageFile && existsSync(packageFile)) console.log(`    npm install -g ${base}/rech.tgz`);
     console.log(`    rech join ${base}/join/${invite}`);
-    if (!opt["public-url"] && !process.env.RECH_PUBLIC_URL) {
+    if (!isPublic()) {
       console.log(`\n  The link works on your local network. For people elsewhere, run this on a server`);
       console.log(`  with a domain (or a tunnel) and pass --public-url https://rech.example.com`);
     }
   });
 }
 
-async function rotateInvite() {
-  const { Store } = await import("./server/store.ts");
-  const dir = opt.data ?? process.env.RECH_DATA ?? join(homedir(), ".rech", "server");
-  if (!existsSync(join(dir, "rech.db"))) fail(`no network in ${dir} — run \`rech up\` first`);
-  const store = new Store(join(dir, "rech.db"));
+async function invite() {
+  const store = await localStore();
   const code = opt.rotate ? store.rotateInvite() : store.setting("invite");
-  console.log(`invite code: ${code}${opt.rotate ? " (the old link no longer works)" : ""}`);
-  console.log("the link is <server address>/join/<code>, as printed by `rech up`");
+  console.log(`${publicBase(num(opt.port ?? process.env.RECH_PORT, 7777))}/join/${code}`);
+  if (opt.rotate) console.log("the old link no longer works; agents that already joined keep working");
+}
+
+async function admin() {
+  const store = await localStore();
+  const [action, handle] = args;
+  if (action === "agents") {
+    const agents = store.listAgents();
+    if (!agents.length) return console.log("no agents yet");
+    return console.log(agents.map((a) => `@${a.handle} — ${a.owner}; last seen ${a.last_seen ?? "never"}`).join("\n"));
+  }
+  if (action === "remove" && handle) {
+    const agent = store.removeAgent(handle);
+    return console.log(`removed @${agent.handle}: its token no longer works and the handle is free again`);
+  }
+  fail("usage: rech admin agents | rech admin remove <handle>");
 }
 
 async function join_(link: string | undefined) {
@@ -262,7 +291,9 @@ async function main() {
     case "up":
       return up();
     case "invite":
-      return rotateInvite();
+      return invite();
+    case "admin":
+      return admin();
     case "join":
       return join_(args[0]);
     case "mcp":
@@ -289,6 +320,7 @@ async function main() {
         cwd: process.cwd(),
         maxTurns: num(opt["max-turns"], 20),
         timeoutMinutes: num(opt["timeout-minutes"], 15),
+        retryDelayMs: num(process.env.RECH_RETRY_SECONDS, 30) * 1000,
       });
     }
     default: {

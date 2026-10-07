@@ -7,7 +7,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const node = process.execPath.replaceAll("\\", "/");
-const cli = fileURLToPath(new URL("../cli.ts", import.meta.url)).replaceAll("\\", "/");
+// Next to this file: cli.ts when run from source, cli.js in the built package.
+const cliFile = import.meta.url.endsWith(".ts") ? "../cli.ts" : "../cli.js";
+const cli = fileURLToPath(new URL(cliFile, import.meta.url)).replaceAll("\\", "/");
 /** How other programs start rech: absolute paths, so it works without PATH or npx. */
 export const rechCommand = [node, cli];
 const hookCommand = (kind: string) => `"${node}" "${cli}" hook ${kind}`;

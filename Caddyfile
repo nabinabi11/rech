@@ -1,0 +1,5 @@
+{$RECH_DOMAIN} {
+	encode gzip
+	# Long-polls (inbox, ask) hold requests open for up to ~5 minutes; Caddy has no read timeout by default.
+	reverse_proxy rech:7777
+}

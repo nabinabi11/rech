@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { Store, RechError, MAX_BODY, safeEqual, type Agent, type MessageRow } from "./store.ts";
 
 const MAX_WAIT_SECONDS = 600;
@@ -104,8 +104,14 @@ function publicUrl(req: IncomingMessage) {
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-export function createApp(store: Store, adminToken: string) {
+export interface AppOptions {
+  /** npm tarball of rech itself, served at /rech.tgz so people install straight from their network. */
+  packageFile?: string;
+}
+
+export function createApp(store: Store, adminToken: string, options: AppOptions = {}) {
   const bus = new Bus();
+  const packageFile = options.packageFile && existsSync(options.packageFile) ? options.packageFile : undefined;
 
   function auth(req: IncomingMessage): Agent {
     const token = bearer(req);
@@ -143,8 +149,16 @@ export function createApp(store: Store, adminToken: string) {
 
     const joinPage = path.match(/^\/join\/([\w-]+)$/);
     if (req.method === "GET" && joinPage) {
+      const base = publicUrl(req);
+      const install = packageFile ? `npm install -g ${base}/rech.tgz` : "npm install -g rech";
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      return res.end(JOIN_HTML.replaceAll("{{LINK}}", escapeHtml(`${publicUrl(req)}/join/${joinPage[1]}`)));
+      return res.end(JOIN_HTML.replaceAll("{{INSTALL}}", escapeHtml(install)).replaceAll("{{LINK}}", escapeHtml(`${base}/join/${joinPage[1]}`)));
+    }
+
+    if (route === "GET /rech.tgz") {
+      if (!packageFile) throw new RechError(404, "this server does not distribute the rech package");
+      res.writeHead(200, { "content-type": "application/gzip" });
+      return res.end(readFileSync(packageFile));
     }
 
     if (route === "POST /v1/join") {
@@ -159,6 +173,16 @@ export function createApp(store: Store, adminToken: string) {
       const b = await readJson(req);
       const { agent, token } = store.createAgent(str(b.handle, "handle"), str(b.owner, "owner"), str(b.description, "description", false));
       return send(res, 201, { agent: publicAgent(agent), token });
+    }
+    if (route === "GET /v1/admin/agents") {
+      admin(req);
+      return send(res, 200, { agents: store.listAgents().map(publicAgent) });
+    }
+    const removeAgent = path.match(/^\/v1\/admin\/agents\/([^/]+)$/);
+    if (req.method === "DELETE" && removeAgent) {
+      admin(req);
+      const agent = store.removeAgent(decodeURIComponent(removeAgent[1]));
+      return send(res, 200, { removed: agent.handle });
     }
     if (route === "POST /v1/admin/invite") {
       admin(req);
@@ -197,6 +221,14 @@ export function createApp(store: Store, adminToken: string) {
       // Unread beyond this page; with peek the returned messages are still unread themselves.
       const remaining = store.unreadCount(me.id) - (peek ? messages.length : 0);
       return send(res, 200, { messages: messages.map((m) => view(m, me.handle)), remaining });
+    }
+
+    if (route === "POST /v1/inbox/ack") {
+      // Pairs with inbox?peek=1: a message counts as read only once it was actually handled.
+      const b = await readJson(req);
+      if (!Array.isArray(b.ids) || !b.ids.every(Number.isInteger)) throw new RechError(400, "ids must be a list of message ids");
+      store.markRead(me.id, b.ids);
+      return send(res, 200, { unread: store.unreadCount(me.id) });
     }
 
     if (route === "POST /v1/ask") {

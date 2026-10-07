@@ -152,3 +152,56 @@ test("join over HTTP and the invite page", async () => {
     server.close();
   }
 });
+
+test("ack marks only the handled messages read", async () => {
+  await call(tokens.front, "POST", "/v1/messages", { to: "@ops", body: "one" });
+  await call(tokens.front, "POST", "/v1/messages", { to: "@ops", body: "two" });
+  const { data } = await call(tokens.ops, "GET", "/v1/inbox?peek=1");
+  assert.equal(data.messages.length, 2);
+  const ack = await call(tokens.ops, "POST", "/v1/inbox/ack", { ids: [data.messages[0].id] });
+  assert.equal(ack.data.unread, 1);
+  assert.equal((await call(tokens.ops, "GET", "/v1/inbox")).data.messages[0].body, "two");
+  assert.equal((await call(tokens.ops, "POST", "/v1/inbox/ack", { ids: ["x"] })).status, 400);
+});
+
+test("rate limit stops a runaway agent", async () => {
+  const store = new Store(":memory:", { messagesPerMinute: 3 });
+  const a = store.createAgent("loop-a", "A").agent;
+  store.createAgent("loop-b", "B");
+  const thread = store.resolveAddress(a, "@loop-b");
+  for (let i = 0; i < 3; i++) store.post(a, thread, `msg ${i}`);
+  assert.throws(() => store.post(a, thread, "one too many"), /slow down/);
+});
+
+test("admin removes an agent: token dies, handle is free, mail to it stops", async () => {
+  const { data: created } = await call(ADMIN, "POST", "/v1/admin/agents", { handle: "leaver", owner: "Ex" });
+  assert.equal((await call(created.token, "GET", "/v1/me")).status, 200);
+  assert.equal((await call(tokens.front, "DELETE", "/v1/admin/agents/leaver")).status, 401, "agents cannot remove agents");
+
+  const removed = await call(ADMIN, "DELETE", "/v1/admin/agents/leaver");
+  assert.equal(removed.data.removed, "leaver");
+  assert.equal((await call(created.token, "GET", "/v1/me")).status, 401);
+  assert.ok(!(await call(tokens.front, "GET", "/v1/agents")).data.agents.some((a: any) => a.handle === "leaver"));
+  assert.equal((await call(tokens.front, "POST", "/v1/messages", { to: "@leaver", body: "hi" })).status, 404);
+  assert.equal((await call(ADMIN, "POST", "/v1/admin/agents", { handle: "leaver", owner: "New" })).status, 201, "handle reusable");
+});
+
+test("server hands out the rech package when configured", async () => {
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const file = join(mkdtempSync(join(tmpdir(), "rech-pkg-")), "rech.tgz");
+  writeFileSync(file, "tarball");
+  const store = new Store(":memory:");
+  const code = store.rotateInvite();
+  const server = createApp(store, "adm", { packageFile: file });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    assert.equal(await (await fetch(`${url}/rech.tgz`)).text(), "tarball");
+    assert.ok((await (await fetch(`${url}/join/${code}`)).text()).includes(`npm install -g ${url}/rech.tgz`));
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});

@@ -1,0 +1,30 @@
+# RECH behind Caddy, which gets and renews the HTTPS certificate by itself.
+# Set RECH_DOMAIN in .env (see .env.example), then: docker compose up -d
+services:
+  rech:
+    build: .
+    restart: unless-stopped
+    environment:
+      RECH_PUBLIC_URL: ${RECH_PUBLIC_URL:?set RECH_PUBLIC_URL in .env}
+      RECH_RATE_LIMIT: ${RECH_RATE_LIMIT:-30}
+    volumes:
+      - rech-data:/data
+    # no published port: only Caddy talks to it
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "${RECH_HTTP_PORT:-80}:80"
+      - "${RECH_HTTPS_PORT:-443}:443"
+    environment:
+      RECH_DOMAIN: ${RECH_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - rech
+
+volumes:
+  rech-data:
+  caddy-data:

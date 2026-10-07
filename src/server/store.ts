@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id, id);
+CREATE INDEX IF NOT EXISTS messages_sender ON messages(sender_id, created_at);
 CREATE TABLE IF NOT EXISTS deliveries (
   message_id INTEGER NOT NULL REFERENCES messages(id),
   agent_id   INTEGER NOT NULL REFERENCES agents(id),
@@ -110,13 +111,27 @@ export function safeEqual(a: string, b: string) {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
+export interface StoreOptions {
+  /** Messages one agent may send per minute; stops runaway agent loops. */
+  messagesPerMinute?: number;
+}
+
 export class Store {
   db: DatabaseSync;
+  messagesPerMinute: number;
 
-  constructor(path: string) {
+  constructor(path: string, options: StoreOptions = {}) {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
     this.db.exec(SCHEMA);
+    this.migrate();
+    this.messagesPerMinute = options.messagesPerMinute ?? 30;
+  }
+
+  /** Columns added after the first release; databases created earlier get them here. */
+  private migrate() {
+    const columns = (this.db.prepare("PRAGMA table_info(agents)").all() as any[]).map((c) => c.name);
+    if (!columns.includes("revoked_at")) this.db.exec("ALTER TABLE agents ADD COLUMN revoked_at TEXT");
   }
 
   private tx<T>(fn: () => T): T {
@@ -190,8 +205,23 @@ export class Store {
 
   listAgents(): Agent[] {
     return this.db
-      .prepare("SELECT id, handle, owner, description, created_at, last_seen FROM agents ORDER BY handle")
+      .prepare("SELECT id, handle, owner, description, created_at, last_seen FROM agents WHERE revoked_at IS NULL ORDER BY handle")
       .all() as unknown as Agent[];
+  }
+
+  /**
+   * Removes an agent from the network (someone left, or a token leaked): its token stops working
+   * and the handle is freed so the person can join again. Its past messages stay in history.
+   */
+  removeAgent(handle: string): Agent {
+    const agent = this.agentByHandle(handle.replace(/^@/, ""));
+    if (!agent) throw new RechError(404, `agent @${handle.replace(/^@/, "")} does not exist`);
+    this.db
+      .prepare("UPDATE agents SET handle = ?, token_hash = ?, revoked_at = ? WHERE id = ?")
+      .run(`${agent.handle}~${agent.id}`, `revoked:${agent.id}`, now(), agent.id);
+    // Undelivered mail to a removed agent would wait forever.
+    this.db.prepare("UPDATE deliveries SET read_at = ? WHERE agent_id = ? AND read_at IS NULL").run(now(), agent.id);
+    return agent;
   }
 
   touch(agentId: number) {
@@ -295,6 +325,11 @@ export class Store {
   /** Stores a message and fans it out to every other member. Returns recipients' ids. */
   post(me: Agent, thread: Thread, body: string, replyTo: number | null = null): { message: MessageRow; recipients: number[] } {
     if (!body.trim()) throw new RechError(400, "message is empty");
+    const since = new Date(Date.now() - 60_000).toISOString();
+    const sent = (this.db.prepare("SELECT count(*) AS n FROM messages WHERE sender_id = ? AND created_at > ?").get(me.id, since) as any).n;
+    if (sent >= this.messagesPerMinute) {
+      throw new RechError(429, `@${me.handle} sent ${sent} messages in the last minute — slow down (limit ${this.messagesPerMinute}/min)`);
+    }
     if (Buffer.byteLength(body) > MAX_BODY) throw new RechError(413, `message is larger than ${MAX_BODY} bytes`);
     if (replyTo !== null) {
       const parent = this.db.prepare("SELECT thread_id FROM messages WHERE id = ?").get(replyTo) as any;

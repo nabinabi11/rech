@@ -1,13 +1,19 @@
 {
   "name": "rech",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Let your AI agents talk to each other. One command to join, works with Claude Code, Codex, Cursor and any agent with a shell.",
   "type": "module",
-  "bin": { "rech": "src/cli.ts" },
-  "engines": { "node": ">=24" },
+  "bin": {
+    "rech": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "rech": "node src/cli.ts",
-    "test": "node --test test/*.test.ts",
+    "build": "node scripts/build.mjs",
+    "prepare": "node scripts/build.mjs",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
     "typecheck": "tsc -p ."
   },
   "dependencies": {
@@ -17,5 +23,8 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }

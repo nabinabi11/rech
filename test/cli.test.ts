@@ -37,11 +37,15 @@ before(async () => {
   }
 });
 
-after(() => {
-  server?.kill();
+after(async () => {
+  if (server && server.exitCode === null) {
+    const exited = new Promise((resolve) => server!.once("exit", resolve));
+    server.kill();
+    await exited;
+  }
   app.closeAllConnections();
   app.close();
-  rmSync(root, { recursive: true, force: true });
+  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
 test("rech join registers the project's agent and keeps the token out of git", async () => {
@@ -81,6 +85,31 @@ test("rech serve answers with any command and the asker gets the reply", async (
   await new Promise((r) => setTimeout(r, 1500));
   const history = await rech(repos.front, ["history", "@nabi-vps"]);
   assert.doesNotMatch(history, /GPU check passed for: thanks/, "NO_REPLY sends nothing");
+});
+
+test("rech serve retries a failed run instead of losing the message", async () => {
+  server?.kill();
+  const flaky = fileURLToPath(new URL("./fixtures/flaky-agent.mjs", import.meta.url));
+  server = spawn(process.execPath, [cli, "serve", "--exec", `"${process.execPath}" "${flaky}"`], {
+    cwd: repos.vps,
+    env: { ...process.env, RECH_URL: "", RECH_TOKEN: "", RECH_RETRY_SECONDS: "1" },
+  });
+  await new Promise((resolve) => server!.stdout!.once("data", resolve));
+
+  const answer = await rech(repos.front, ["ask", "@nabi-vps", "are you there?", "--timeout", "20"]);
+  assert.match(answer, /answered on retry/);
+});
+
+test("rech admin removes an agent from the server's database", async () => {
+  const data = join(root, "net");
+  (await import("node:fs")).mkdirSync(data);
+  const local = new Store(join(data, "rech.db"));
+  local.createAgent("temp-agent", "T");
+  const out = await rech(root, ["admin", "remove", "@temp-agent", "--data", data]);
+  assert.match(out, /removed @temp-agent/);
+  assert.equal(local.agentByHandle("temp-agent"), undefined);
+  assert.match(await rech(root, ["admin", "agents", "--data", data]), /no agents yet/);
+  local.db.close(); // Windows cannot delete an open database file in after()
 });
 
 test("rech prompt gives shell-only agents their instructions", async () => {

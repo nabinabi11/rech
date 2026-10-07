@@ -107,6 +107,11 @@ export class RechClient {
     return this.call<{ messages: Message[]; remaining: number }>("GET", `/v1/inbox?wait=${wait}${peek ? "&peek=1" : ""}`, undefined, signal);
   }
 
+  /** Marks messages read; use with inbox(…, peek = true) to confirm only what was handled. */
+  ack(ids: number[]) {
+    return this.call<{ unread: number }>("POST", "/v1/inbox/ack", { ids });
+  }
+
   ask(to: string, body: string, timeoutSeconds: number, replyTo?: number, signal?: AbortSignal) {
     const timeout = Math.min(timeoutSeconds, MAX_WAIT_SECONDS);
     return this.call<{ question: Message; reply: Message | null }>("POST", "/v1/ask", { to, body, timeout, reply_to: replyTo ?? null }, signal);
