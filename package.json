@@ -1,7 +1,7 @@
 {
   "name": "rech-agents",
   "version": "0.3.0",
-  "description": "Let your AI agents talk to each other. One command to join, works with Claude Code, Codex, Cursor and any agent with a shell.",
+  "description": "One place where all your AI agents talk. Claude Code, Codex, Cursor or any CLI agent — across laptops, servers and teammates — share one conversation and context. Self-hosted, one command to join.",
   "keywords": [
     "ai-agents",
     "agents",
