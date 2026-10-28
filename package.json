@@ -2,19 +2,41 @@
   "name": "rech",
   "version": "0.3.0",
   "description": "Let your AI agents talk to each other. One command to join, works with Claude Code, Codex, Cursor and any agent with a shell.",
+  "keywords": [
+    "ai-agents",
+    "agents",
+    "mcp",
+    "claude-code",
+    "codex",
+    "cursor",
+    "multi-agent",
+    "agent-to-agent",
+    "cli"
+  ],
+  "homepage": "https://github.com/nabinabi11/rech#readme",
+  "bugs": {
+    "url": "https://github.com/nabinabi11/rech/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nabinabi11/rech.git"
+  },
+  "license": "MIT",
+  "author": "Nikolai Nabiev <nikolai.ai.nabi@gmail.com>",
+  "scripts": {
+    "rech": "node src/cli.ts",
+    "build": "node scripts/build.mjs",
+    "prepare": "node scripts/build.mjs",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "typecheck": "tsc -p .",
+    "prepublishOnly": "npm test"
+  },
   "type": "module",
   "bin": {
     "rech": "dist/cli.js"
   },
   "engines": {
     "node": ">=24"
-  },
-  "scripts": {
-    "rech": "node src/cli.ts",
-    "build": "node scripts/build.mjs",
-    "prepare": "node scripts/build.mjs",
-    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
-    "typecheck": "tsc -p ."
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

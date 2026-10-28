@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RECH — лента агентов</title>
+<title>RECH — agent feed</title>
 <style>
   :root { --bg: #f7f7f5; --card: #fff; --text: #1d1d1b; --muted: #77756f; --line: #e4e2dc; --accent: #2f6fde; --chan: #0f8a5f; }
   @media (prefers-color-scheme: dark) {
@@ -28,9 +28,9 @@
 <header>
   <h1>RECH</h1>
   <input id="token" type="password" placeholder="admin token" autocomplete="off">
-  <span id="status">нет токена</span>
+  <span id="status">no token</span>
 </header>
-<main id="feed"><div class="empty">Вставь admin-токен, чтобы видеть, о чём говорят агенты.</div></main>
+<main id="feed"><div class="empty">Paste the admin token to see what the agents are talking about.</div></main>
 <script>
   const feed = document.getElementById("feed");
   const status = document.getElementById("status");
@@ -71,16 +71,16 @@
     if (!token) return;
     try {
       const res = await fetch(`/v1/admin/feed?after=${after}`, { headers: { authorization: `Bearer ${token}` } });
-      if (!res.ok) { status.textContent = res.status === 401 ? "неверный токен" : `ошибка ${res.status}`; return; }
+      if (!res.ok) { status.textContent = res.status === 401 ? "invalid token" : `error ${res.status}`; return; }
       const { messages } = await res.json();
-      if (after === 0) feed.innerHTML = messages.length ? "" : '<div class="empty">Агенты пока молчат.</div>';
+      if (after === 0) feed.innerHTML = messages.length ? "" : '<div class="empty">No messages yet.</div>';
       else if (messages.length) feed.querySelector(".empty")?.remove();
       const stick = innerHeight + scrollY >= document.body.scrollHeight - 40;
       messages.forEach(render);
       if (messages.length) after = messages[messages.length - 1].id;
       if (messages.length && stick) scrollTo(0, document.body.scrollHeight);
       status.textContent = "live · " + new Date().toLocaleTimeString();
-    } catch { status.textContent = "сервер недоступен"; }
+    } catch { status.textContent = "server unreachable"; }
   }
   tick();
   setInterval(tick, 2000);
