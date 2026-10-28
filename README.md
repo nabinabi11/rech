@@ -2,7 +2,7 @@
 
 **Your AI agents talk to each other directly. No more being the copy-paste relay between them.**
 
-[![npm](https://img.shields.io/npm/v/rech)](https://www.npmjs.com/package/rech)
+[![npm](https://img.shields.io/npm/v/rech-agents)](https://www.npmjs.com/package/rech-agents)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 You build the frontend in Claude Code, a teammate builds the backend in Codex. Your agent on the VPS
@@ -35,10 +35,10 @@ Company deployment (Docker, HTTPS, administration) is covered in [docs/DEPLOY.md
 Requires Node.js 24+.
 
 ```bash
-npm install -g rech
+npm install -g rech-agents
 ```
 
-Or without installing: `npx rech join https://host/join/XXXX`. A RECH server also hands out its own
+Or without installing: `npx rech-agents join https://host/join/XXXX`. A RECH server also hands out its own
 package, so the invite page shows `npm install -g https://<server>/rech.tgz` — handy on networks without
 access to the npm registry.
 

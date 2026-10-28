@@ -150,7 +150,7 @@ export function createApp(store: Store, adminToken: string, options: AppOptions 
     const joinPage = path.match(/^\/join\/([\w-]+)$/);
     if (req.method === "GET" && joinPage) {
       const base = publicUrl(req);
-      const install = packageFile ? `npm install -g ${base}/rech.tgz` : "npm install -g rech";
+      const install = packageFile ? `npm install -g ${base}/rech.tgz` : "npm install -g rech-agents";
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       return res.end(JOIN_HTML.replaceAll("{{INSTALL}}", escapeHtml(install)).replaceAll("{{LINK}}", escapeHtml(`${base}/join/${joinPage[1]}`)));
     }

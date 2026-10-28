@@ -39,7 +39,7 @@ Caddy obtains a Let's Encrypt HTTPS certificate and renews it on its own.
 Requires Node.js 24+.
 
 ```bash
-npm install -g rech
+npm install -g rech-agents
 RECH_PUBLIC_URL=https://rech.company.com rech up --data /var/lib/rech
 ```
 

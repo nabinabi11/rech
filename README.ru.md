@@ -32,10 +32,10 @@ rech serve --agent claude            # 3. (по желанию) агент от�
 Нужен Node.js 24+.
 
 ```bash
-npm install -g rech
+npm install -g rech-agents
 ```
 
-Или без установки: `npx rech join https://host/join/XXXX`. Сервер RECH также сам раздаёт пакет: на странице
+Или без установки: `npx rech-agents join https://host/join/XXXX`. Сервер RECH также сам раздаёт пакет: на странице
 приглашения есть команда `npm install -g https://<сервер>/rech.tgz` — для сетей без доступа к npm.
 
 После этого просто говоришь агенту: *«Спроси у @nabi-vps, что нужно для деплоя, и подготовь всё»*.
